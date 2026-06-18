@@ -1,4 +1,6 @@
-import type { TimeOfDay, MoodLevel, GameConfig, CharacterConfig } from '../types/game'
+import type { TimeOfDay, MoodLevel, GameConfig, CharacterConfig, CardConfig } from '../types/game'
+import gameConfig from '../config/gameConfig'
+import type { CharacterState } from '../stores/gameStore'
 
 export function getMoodLevel(mood: number): MoodLevel {
   if (mood >= 80) return 'happy'
@@ -155,4 +157,153 @@ export function calculateGiftAffinity(
   baseChange *= moodMultiplier
 
   return Math.round(baseChange * 10) / 10
+}
+
+export type CardUnlockType = 'affinity' | 'meet' | 'event' | 'unknown'
+
+export interface CardUnlockProgress {
+  type: CardUnlockType
+  current: number
+  target: number
+  description: string
+  characterId?: string
+}
+
+export function parseCardUnlockCondition(card: CardConfig): CardUnlockProgress {
+  const condition = card.unlockCondition
+
+  const affinityMatch = condition.match(/^(\w+)_affinity_(\d+)$/)
+  if (affinityMatch) {
+    const characterId = affinityMatch[1]
+    const targetAffinity = parseInt(affinityMatch[2], 10)
+    const character = gameConfig.characters.find(c => c.id === characterId)
+    return {
+      type: 'affinity',
+      current: 0,
+      target: targetAffinity,
+      description: `好感度达到 ${targetAffinity}`,
+      characterId
+    }
+  }
+
+  const meetMatch = condition.match(/^meet_(\w+)$/)
+  if (meetMatch) {
+    const characterId = meetMatch[1]
+    const character = gameConfig.characters.find(c => c.id === characterId)
+    return {
+      type: 'meet',
+      current: 0,
+      target: 1,
+      description: `初次见面${character ? ' - ' + character.name : ''}`,
+      characterId
+    }
+  }
+
+  return {
+    type: 'unknown',
+    current: 0,
+    target: 1,
+    description: '特殊条件解锁',
+    characterId: card.characterId
+  }
+}
+
+export function getCardUnlockProgress(
+  card: CardConfig,
+  characters: CharacterState[],
+  collectedCards: string[],
+  triggeredEvents: string[]
+): CardUnlockProgress {
+  const base = parseCardUnlockCondition(card)
+
+  if (collectedCards.includes(card.id)) {
+    base.current = base.target
+    return base
+  }
+
+  if (base.type === 'affinity' && base.characterId) {
+    const charState = characters.find(c => c.id === base.characterId)
+    if (charState) {
+      base.current = Math.min(charState.affinity, base.target)
+    }
+  } else if (base.type === 'meet' && base.characterId) {
+    const commonCard = gameConfig.cards.find(
+      c => c.characterId === base.characterId && c.rarity === 'common'
+    )
+    if (commonCard && collectedCards.includes(commonCard.id)) {
+      base.current = 1
+    } else {
+      const charState = characters.find(c => c.id === base.characterId)
+      if (charState?.unlocked) {
+        const hasIntroEvent = triggeredEvents.some(e => e.includes('intro'))
+        if (hasIntroEvent) {
+          base.current = 1
+        }
+      }
+    }
+  }
+
+  return base
+}
+
+export function getCardProgressText(progress: CardUnlockProgress): string {
+  if (progress.current >= progress.target) {
+    return '已达成 ✓'
+  }
+
+  if (progress.type === 'affinity') {
+    return `${progress.current} / ${progress.target}`
+  }
+
+  if (progress.type === 'meet') {
+    return progress.current === 0 ? '未达成' : '已达成 ✓'
+  }
+
+  return '未知'
+}
+
+export function getCardProgressPercent(progress: CardUnlockProgress): number {
+  if (progress.target === 0) return 100
+  return Math.min(100, (progress.current / progress.target) * 100)
+}
+
+export function getCharacterCardsProgress(
+  characterId: string,
+  characters: CharacterState[],
+  collectedCards: string[],
+  triggeredEvents: string[]
+): {
+  total: number
+  collected: number
+  locked: number
+  missingCards: Array<{
+    card: CardConfig
+    progress: CardUnlockProgress
+    progressPercent: number
+    progressText: string
+  }>
+} {
+  const charCards = gameConfig.cards.filter(c => c.characterId === characterId)
+  const collected = charCards.filter(c => collectedCards.includes(c.id)).length
+  const locked = charCards.length - collected
+
+  const missingCards = charCards
+    .filter(c => !collectedCards.includes(c.id))
+    .map(card => {
+      const progress = getCardUnlockProgress(card, characters, collectedCards, triggeredEvents)
+      return {
+        card,
+        progress,
+        progressPercent: getCardProgressPercent(progress),
+        progressText: getCardProgressText(progress)
+      }
+    })
+    .sort((a, b) => a.progressPercent - b.progressPercent)
+
+  return {
+    total: charCards.length,
+    collected,
+    locked,
+    missingCards
+  }
 }

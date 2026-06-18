@@ -2,7 +2,15 @@
 import { ref, computed } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import gameConfig from '../config/gameConfig'
-import { getRarityColor, getRarityLabel } from '../utils/gameUtils'
+import {
+  getRarityColor,
+  getRarityLabel,
+  getCardUnlockProgress,
+  getCardProgressText,
+  getCardProgressPercent,
+  getCardProgressText as _getCardProgressText
+} from '../utils/gameUtils'
+import type { CardConfig } from '../types/game'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -42,6 +50,38 @@ function getCharacterName(characterId: string): string {
 function getCharacterAvatar(characterId: string): string {
   const char = gameConfig.characters.find(c => c.id === characterId)
   return char?.avatar || '❓'
+}
+
+function getCardProgress(card: CardConfig) {
+  return getCardUnlockProgress(
+    card,
+    gameStore.characters,
+    gameStore.collectedCards,
+    gameStore.triggeredEvents
+  )
+}
+
+function cardProgressText(card: CardConfig): string {
+  if (isCollected(card.id)) return '已收集'
+  return _getCardProgressText(getCardProgress(card))
+}
+
+function cardProgressPercent(card: CardConfig): number {
+  if (isCollected(card.id)) return 100
+  return getCardProgressPercent(getCardProgress(card))
+}
+
+function cardProgressDescription(card: CardConfig): string {
+  if (isCollected(card.id)) return '已解锁'
+  const progress = getCardProgress(card)
+  return progress.description
+}
+
+function getProgressBarColor(percent: number, rarity: string): string {
+  if (percent >= 100) return getRarityColor(rarity)
+  if (percent >= 70) return '#22c55e'
+  if (percent >= 40) return '#eab308'
+  return '#94a3b8'
 }
 </script>
 
@@ -109,7 +149,21 @@ function getCharacterAvatar(characterId: string): string {
               </span>
             </div>
             <p v-if="isCollected(card.id)" class="card-desc">{{ card.description }}</p>
-            <p v-else class="card-desc locked">未解锁</p>
+            <div v-else class="unlock-progress">
+              <div class="unlock-condition">
+                <span class="condition-label">{{ cardProgressDescription(card) }}</span>
+                <span class="condition-value" :class="{ near: cardProgressPercent(card) >= 70 }">{{ cardProgressText(card) }}</span>
+              </div>
+              <div class="card-progress-bar">
+                <div 
+                  class="card-progress-fill"
+                  :style="{ 
+                    width: `${cardProgressPercent(card)}%`,
+                    background: getProgressBarColor(cardProgressPercent(card), card.rarity)
+                  }"
+                ></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -265,5 +319,54 @@ function getCharacterAvatar(characterId: string): string {
 .card-desc.locked {
   color: var(--text-muted);
   font-style: italic;
+}
+
+.unlock-progress {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.unlock-condition {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+
+.condition-label {
+  color: var(--text-secondary);
+  flex: 1;
+  text-align: left;
+}
+
+.condition-value {
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.condition-value.near {
+  color: #22c55e;
+}
+
+.card-progress-bar {
+  width: 100%;
+  height: 5px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.card-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s, background 0.3s;
+}
+
+.card-item.locked {
+  opacity: 0.9;
 }
 </style>
