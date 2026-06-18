@@ -227,19 +227,17 @@ export function getCardUnlockProgress(
       base.current = Math.min(charState.affinity, base.target)
     }
   } else if (base.type === 'meet' && base.characterId) {
-    const commonCard = gameConfig.cards.find(
-      c => c.characterId === base.characterId && c.rarity === 'common'
+    const charId = base.characterId
+    
+    const hasCharacterIntroEvent = triggeredEvents.some(e => e === `intro_${charId}`)
+    
+    const sameRoleCommonCard = gameConfig.cards.find(
+      c => c.characterId === charId && c.rarity === 'common'
     )
-    if (commonCard && collectedCards.includes(commonCard.id)) {
+    const hasCommonCard = sameRoleCommonCard && collectedCards.includes(sameRoleCommonCard.id)
+    
+    if (hasCharacterIntroEvent || hasCommonCard) {
       base.current = 1
-    } else {
-      const charState = characters.find(c => c.id === base.characterId)
-      if (charState?.unlocked) {
-        const hasIntroEvent = triggeredEvents.some(e => e.includes('intro'))
-        if (hasIntroEvent) {
-          base.current = 1
-        }
-      }
     }
   }
 
